@@ -96,8 +96,7 @@ class MarketplaceServer {
         }
     }
 
-    onViewerPing(message) {
-        this.log('got ping from viewer', message.id)
+    onViewerPing(message, rinfo) {
         let viewer = this.viewers.get(message.id)
         if (!viewer) {
             this.onNewViewer(message.id, rinfo)
@@ -149,14 +148,13 @@ class MarketplaceServer {
         let imageName = 'image.png'
         let buffer = Buffer.from(imageData, 'base64');
         fs.writeFileSync(imageName, buffer)
-        this.analyze(imageName, (err, result) => {
-            if (err) {
-                console.log(err.stack)
-                return
-            }
-            this.publishStreamMetadataResult(id, result)
-        })
-
+        // this.analyze(imageName, (err, result) => {
+        //     if (err) {
+        //         console.log(err.stack)
+        //         return
+        //     }
+        //     this.publishStreamMetadataResult(id, result)
+        // })
     }
 
     analyze(imageName, id) {
@@ -206,14 +204,13 @@ class MarketplaceServer {
     send(message, receiver) {
         const m = this.serializer.serialize(message)
         let {port, address} = receiver.rinfo
-        //this.log('sending', m.toString())
+        this.log('sending', m.toString(), address, port)
         this.socket.send(m, port, address, (err) => {
             //this.socket.close();
         });
     }
 
     onMessage(buf, rinfo) {
-        //console.log('MESSAGE', buf.toString())
         let message = this.serializer.deserialize(buf)
         this.dispatch(message, rinfo)
     }
@@ -258,12 +255,44 @@ class MarketplaceServer {
         this.offer(offer, offer.id)
     }
 
+    onStop(stop) {
+        let contributor = this.contributors.values().filter((c)=> {
+            return c.id == stop.id
+        }).pop()
+        if (!contributor) {
+            console.log('Invalid target to stop: ' + JSON.stringify(stop))
+        }
+        this.send(stop, contributor)
+    }
+
     onTopic(topic) {
         this.publishTopic(topic.title || 'title-placeholder')
     }
 
     onOfferAccept(offerAccept, rinfo) {
         this.log('Got offer accept', offerAccept)
+        // for(let v of this.viewers.values()) {
+        //     this.send({
+        //         type: 'channel_change',
+        //         channel: offerAccept.id
+        //     }, v)
+        // }
+        let channelChange = {
+            type: 'channel_change',
+            channel: offerAccept.id
+        }
+
+        this.publishToViewers(channelChange)
+    }
+
+    onChannelChange(channelChange) {
+        this.publishToViewers(channelChange)
+    }
+
+    publishToViewers(message) {
+        for(let v of this.viewers.values()) {
+            this.send(message, v)
+        }
     }
 
     onListening() {
@@ -337,8 +366,14 @@ class MarketplaceServer {
             case 'topic-accept':
                 this.onTopicAccept(message, rinfo)
                 break;
+            case 'channel_change':
+                this.onChannelChange(message, rinfo)
+                break;
+            case 'stop':
+                this.onStop(message, rinfo)
+            break;
             default:
-            this.log('Unknown message', message)
+                this.log('Unknown message', message)
         }
     }
 }
