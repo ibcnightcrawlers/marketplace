@@ -1,4 +1,8 @@
 'use strict'
+const http = require('http')
+const KEY_FILENAME = 'My First Project-c5c22af24705.json' 
+const PROJECT_ID = 'famous-empire-143016' 
+const fs = require('fs')
 
 const dgram = require('dgram')
 const LRU = require("lru-cache")
@@ -55,6 +59,11 @@ class MarketplaceServer {
         this.port = port
         this.addr = addr
         this.serializer = serializer
+        var vision = this.vision = require('@google-cloud/vision')({
+            projectId: PROJECT_ID,
+            keyFilename: KEY_FILENAME
+        });
+
     }
 
     onPing(message, rinfo) {
@@ -75,6 +84,15 @@ class MarketplaceServer {
             .forEach((topic) =>{
                 this.send(topic, contributor)
             })
+    }
+
+    onImage(image) {
+        let imageData = image.image
+        let imageName = 'image.png'
+        fs.writeFileSync(imageName)
+        this.vision.detectFaces(imageName, function (err, faces) {
+            console.log(JSON.stringify(face, 0, 2))
+        })
     }
 
     publishTopic(title, coord, radius) {
@@ -138,6 +156,10 @@ class MarketplaceServer {
         this.log('Got offer accept', offerAccept)
     }
 
+    onImage(image) {
+        this.vision.detectFaces
+    }
+
     onListening() {
         var address = this.socket.address();
         this.log(`listening ${address.address}:${address.port}`);
@@ -148,11 +170,45 @@ class MarketplaceServer {
         this.socket.on('message', this.onMessage.bind(this))
         this.socket.on('error', this.onError.bind(this))
         this.socket.on('listening', this.onListening.bind(this))
-        this.socket.bind(this.port, this.addr);
+        this.socket.bind(this.port, this.addr)
+
+        this.httpServer = http.createServer(this.onHttpRequest.bind(this))
+        this.httpServer.listen(8080)
+    }
+
+    onHttpRequest(req, res) {
+        this.log('http request')
+        switch(req.url) {
+            case '/image':
+                this.bufferedRequest(req, (req, body)=> {
+                    let imageMessage = JSON.parse(body)
+                    res.writeHead(200, {'content-length': 0})
+                    res.end()
+                    this.onImage(imageMessage)
+                })
+            break;
+            default:
+                this.log('Unknown http resource ' + req.url)
+            break;    
+        }
+    }
+
+    bufferedRequest(req, callback) {
+        let d = ''
+        this.req.on('data', function (data) {
+            console.log('data: ', data.toString())
+            d += data
+        })
+        this.req.on('end', function () {
+            callback(req, res, d)
+        })
     }
 
     dispatch(message, rinfo) {
         switch(message.type) {
+            case 'image':
+                this.onImage(message)
+                break;
             case 'ping':
                 this.onPing(message, rinfo)
                 break
@@ -283,7 +339,6 @@ process.stdin.on('data', function (data) {
 
 // let contributor1 = new ContributorClient('1', SERVER_PORT, SERVER_ADDR, serializer)
 // contributor1.join()
-
 
 // let contributor2 = new ContributorClient('2', SERVER_PORT, SERVER_ADDR, serializer)
 
