@@ -20,24 +20,50 @@ class Contributor {
     }    
 }
 
+class Offer {
+    constructor(buyer, topic, geolocation) {
+        this.buyer = buyer
+        this.topic = topic
+        this.geolocation
+    }
+
+    get id() {
+        return `${this.buyer}:${this.topic}`
+    }
+}
+
 class MarketplaceServer {
     constructor(contributorPort, serializer) {
-        this.contributors = new LRU(50)
+        this.contributors = new LRU(100)
+        this.offers = new LRU(100)
         this.clients = []
         this.contributorPort = contributorPort
         this.serializer = serializer
     }
 
     onPing(message, rinfo) {
-        this.log('got ping from ', message.id)
+        this.log('got ping from contributor', message.id)
         let contributor = this.contributors.get(message.id)
         if (!contributor) {
-            this.contributors.set(message.id, new Contributor(message.id, rinfo))
+            this.onNewContributor(message.id, rinfo)
         }
+    }
+
+    onNewContributor(id, rinfo) {
+        let contributor = new Contributor(id, rinfo)
+        this.contributors.set(id, contributor)
+        this.offers.values()
+            .filter((offer) =>{
+                return true    
+            })
+            .forEach((offer) =>{
+                this.send(offer, contributor)
+            })
     }
 
     offer(o) {
         o.type = 'offer'
+        this.offers.set(o.id, o, o.maxAge)
         for(let c of this.contributors.values()) {
             this.send(o, c)
         }
@@ -109,10 +135,14 @@ class ContributorClient {
         this.dispatch(message, rinfo)
     }
 
+    onOffer(offer) {
+        this.log('got offer', JSON.stringify(offer))
+    }
+
     dispatch(message) {
         switch(message.type) {
             case 'offer':
-                this.log('got offer', JSON.stringify(message))
+                this.onOffer(message)
             break
             default:
             this.log('Unknown message', message.type)
@@ -120,7 +150,7 @@ class ContributorClient {
     }
 
     log(...args) {
-        args.unshift('contributor')
+        args.unshift('contributor ' + this.id)
         console.log.apply(console, args)
     }
 
@@ -163,20 +193,14 @@ setTimeout(function () {
 }, 3000)
 
 setTimeout(function () {
-    contributor2.join()
-}, 3000)
-
-setTimeout(function () {
     server.offer({
         buyer: 'foxy-news',
         amount: 100,
         currency: 'USD'
     })
-}, 1000)
+}, 2000)
 
 //contributor1.join()
-
-
 // server.on('message', (msg, rinfo) => {
 //   console.log(`server got: ${msg} from ${rinfo.address}:${rinfo.port}`);
 //   let message = parseMsg(msg)
